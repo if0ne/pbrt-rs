@@ -193,13 +193,13 @@ struct ShapeIntersection {}
 struct Ray {}
 
 #[derive(Debug)]
-struct BaseIntegrator {
+struct IntegratorImpl {
     aggregate: Primitive,
     lights: Vec<Light>,
     infinity_lights: Vec<Light>,
 }
 
-impl BaseIntegrator {
+impl IntegratorImpl {
     fn new(aggregate: Primitive, mut lights: Vec<Light>) -> Self {
         let scene_bounds = if aggregate.check() {
             aggregate.bounds()
@@ -252,7 +252,18 @@ impl Film {
     fn pixel_bounds(&self) -> Bounds<2, i32> {
         todo!()
     }
+
+    fn sampled_wave_lenghts(&self, lu: f32) -> SampledWavelengths {
+        todo!()
+    }
+
+    fn get_filter(&self) -> Filter {
+        todo!()
+    }
 }
+
+#[derive(Debug)]
+struct SampledWavelengths {}
 
 #[derive(Debug)]
 struct Camera {
@@ -263,6 +274,15 @@ impl Camera {
     fn get_film(&self) -> &Film {
         &self.film
     }
+
+    fn generate_ray_differential(&self, camera_sample: CameraSample, lambda: SampledWavelengths) -> Option<CameraRayDifferential> {
+        todo!()
+    }
+}
+
+#[derive(Debug)]
+struct CameraRayDifferential {
+
 }
 
 #[derive(Clone, Debug)]
@@ -274,6 +294,10 @@ impl Sampler {
     }
 
     fn start_pixel_sample(&self, pixel: Point<2, i32>, index: u32) {}
+
+    fn get_1d(&self) -> f32 {
+        0.0
+    }
 }
 
 #[derive(Debug)]
@@ -297,8 +321,14 @@ impl ScratchBuffer {
 }
 
 #[derive(Debug)]
-struct BaseImageTileIntegrator {
-    base: BaseIntegrator,
+struct Filter {}
+
+#[derive(Debug)]
+struct CameraSample {}
+
+#[derive(Debug)]
+struct ImageTileIntegratorImpl {
+    base: IntegratorImpl,
     camera: Camera,
     sampler: Sampler,
 
@@ -315,26 +345,7 @@ trait ImageTileIntegrator: Integrator {
     );
 }
 
-impl ImageTileIntegrator for BaseImageTileIntegrator {
-    fn evaluate_pixel_sample(
-        &self,
-        pixel: Point<2, i32>,
-        sample_index: u32,
-        sampler: &mut Sampler,
-        scratch_buffer: &mut ScratchBuffer,
-    ) {
-    }
-}
-
-impl BaseImageTileIntegrator {
-    thread_local! {
-        static scratch_buffer: RefCell<ScratchBuffer> = RefCell::new(ScratchBuffer {});
-    }
-
-    thread_local! {
-        static sampler: RefCell<Sampler> = RefCell::new(Sampler {});
-    }
-
+impl ImageTileIntegratorImpl {
     fn new(
         camera: Camera,
         sampler: Sampler,
@@ -342,7 +353,7 @@ impl BaseImageTileIntegrator {
         lights: Vec<Light>,
         options: Options,
     ) -> Self {
-        let base = BaseIntegrator::new(aggregate, lights);
+        let base = IntegratorImpl::new(aggregate, lights);
 
         Self {
             base,
@@ -361,14 +372,51 @@ impl BaseImageTileIntegrator {
     }
 }
 
-impl Integrator for BaseImageTileIntegrator {
+#[derive(Debug)]
+struct RayIntegrator {
+    base: ImageTileIntegratorImpl,
+}
+
+impl RayIntegrator {
+    thread_local! {
+        static scratch_buffer: RefCell<ScratchBuffer> = RefCell::new(ScratchBuffer {});
+    }
+
+    thread_local! {
+        static sampler: RefCell<Sampler> = RefCell::new(Sampler {});
+    }
+
+    fn new(
+        camera: Camera,
+        sampler: Sampler,
+        aggregate: Primitive,
+        lights: Vec<Light>,
+        options: Options,
+    ) -> Self {
+        let base = ImageTileIntegratorImpl::new(camera, sampler, aggregate, lights, options);
+
+        Self {
+            base,
+        }
+    }
+
+    fn intersect(&self, ray: &Ray, tmax: f32) -> Option<ShapeIntersection> {
+        self.base.intersect(ray, tmax)
+    }
+
+    fn intersect_p(&self, ray: &Ray, tmax: f32) -> bool {
+        self.base.intersect_p(ray, tmax)
+    }
+}
+
+impl Integrator for RayIntegrator {
     fn render(&self) {
-        let pixel_bounds = self.camera.get_film().pixel_bounds();
-        let spp = self.sampler.samples_per_pixel();
+        let pixel_bounds = self.base.camera.get_film().pixel_bounds();
+        let spp = self.base.sampler.samples_per_pixel();
         let mut progress = ProgressReport::new(
             (spp as i32 * pixel_bounds.area()) as _,
             "Rendering",
-            self.options.quiet,
+            self.base.options.quiet,
         );
 
         let mut wave_start = 0;
@@ -403,6 +451,24 @@ impl Integrator for BaseImageTileIntegrator {
             wave_end = spp.min(wave_end + next_wave_size);
             next_wave_size = 64.min(2 * next_wave_size);
         }
+    }
+}
+
+impl ImageTileIntegrator for RayIntegrator {
+    fn evaluate_pixel_sample(
+        &self,
+        pixel: Point<2, i32>,
+        sample_index: u32,
+        sampler: &mut Sampler,
+        scratch_buffer: &mut ScratchBuffer,
+    ) {
+        let lu = sampler.get_1d();
+        let lambda = self.base.camera.get_film().sampled_wave_lenghts(lu);
+
+        let filter = self.base.camera.get_film().get_filter();
+        let camera_sample = get_camera_sample(sampler, pixel, filter);
+
+        let camera_ray = self.base.camera.generate_ray_differential(camera_sample, lambda);
     }
 }
 
@@ -444,3 +510,7 @@ fn render_wavefront(scene: &BasicScene) {}
 fn cleanup_pbrt() {}
 
 fn parallel_for2d(size: Bounds<2, i32>, func: impl FnMut(Bounds<2, i32>)) {}
+
+fn get_camera_sample(sampler: &Sampler, pixel: Point<2, i32>, filter: Filter) -> CameraSample {
+    todo!()
+}
